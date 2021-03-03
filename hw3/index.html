@@ -36,10 +36,10 @@
  uniform vec3 uLCol[nl];
 
  const int ns = 2;
- vec4 Sph[ns];
- vec3 Ambient [ns];
- vec3 Diffuse [ns];
- vec4 Specular[ns];
+ uniform vec4 uSph[ns];
+ uniform vec3 uAmbient [ns];
+ uniform vec3 uDiffuse [ns];
+ uniform vec4 uSpecular[ns];
 
  // INTERSECT A RAY WITH A SPHERE:
 
@@ -68,7 +68,7 @@
 
        float t = -1.;
        for (int k = 0 ; k < ns ; k++)
-          t = max(t, raySphere(Sph[k], S, uLDir[j]));
+          t = max(t, raySphere(uSph[k], S, uLDir[j]));
 
        if (t < 0.) {
           vec3 R = 2. * dot(uLDir[j], N) * N - uLDir[j];
@@ -94,21 +94,6 @@
  // HERE, FOR YOUR HOMEWORK, YOU CAN WRITE ANY
  // CODE YOU LIKDEFINE A COLOR FOR THIS FRAGMENT.
 
-    // POSITIONS AND RADII OF SPHERES:
-
-    Sph[0] = vec4(.5*sin(uTime),0.,.5*cos(uTime), 0.2);
-    Sph[1] = vec4(0.,0.,0., 0.2);
-
-    // SURFACE REFLECTANCE PROPERTIES:
-
-    Ambient [0] = vec3(.2,.1,.1);      // r,g,b
-    Diffuse [0] = vec3(1.,.5,.5);      // r,g,b
-    Specular[0] = vec4(1.,1.,1., 10.); // r,g,b,power
-
-    Ambient [1] = vec3(.1,.1,.2);      // r,g,b
-    Diffuse [1] = vec3(.5,.5,1.);      // r,g,b
-    Specular[1] = vec4(1.,1.,1., 20.); // r,g,b,power
-
     // INITIALIZE TO A BACKGROUND COLOR:
 
     vec3 color = skyColor(vPos.y);
@@ -128,24 +113,24 @@
 
        // IF RAY HITS SPHERE
 
-       float t = raySphere(Sph[i], V, W);
+       float t = raySphere(uSph[i], V, W);
 
        if (t > 0. && t < tMin) {
 
           // FIND SURFACE POINT AND NORMAL, THEN DO SHADING:
 
           vec3 S = V + t * W;
-          vec3 N = normalize(S - Sph[i].xyz);
-          color = shadeSphere(S, N, W, Ambient[i], Diffuse[i], Specular[i]);
+          vec3 N = normalize(S - uSph[i].xyz);
+          color = shadeSphere(S, N, W, uAmbient[i], uDiffuse[i], uSpecular[i]);
 
-	  /////////////////////////////////////////////////////////////////////
-	  //
-	  // DO REFRACTION THROUGH TRANSPARENT SPHERE:
+          /////////////////////////////////////////////////////////////////////
           //
-	  // Compute refracted ray direction into front of sphere.
-	  // Shoot ray from front of sphere toward rear of sphere.
-	  // Compute surface point and normal at rear of sphere.
-	  // Compute emergent ray direction out of rear of sphere.
+          // DO REFRACTION THROUGH TRANSPARENT SPHERE:
+          //
+          // Compute refracted ray direction into front of sphere.
+          // Shoot ray from front of sphere toward rear of sphere.
+          // Compute surface p)int and normal at rear of sphere.
+          // Compute emergent ray direction out of rear of sphere.
           // Loop through all spheres:
           //    Shoot emergent ray toward other sphere
           //    If ray hits other sphere and this is the nearest hit so far:
@@ -154,20 +139,20 @@
           // If emergent ray has hit any sphere:
           //    mix refraction color into color.
           //
-	  // HINT: To compute the outgoing refracted ray direction when
-	  // going from a medium with refractive index n1 to refract index n2,
-	  // when the incoming ray is W, and the surface normal is N:
+          // HINT: To compute the outgoing refracted ray direction when
+          // going from a medium with refractive index n1 to refract index n2,
+          // when the incoming ray is W, and the surface normal is N:
           //
-	  // (1) Compute the component of W that is perpendicular to N.
-	  // (2) Scale that component vector by n1/n2.
-	  // (3) Use that result to build a new outgoing unit length ray.
-	  //
-	  /////////////////////////////////////////////////////////////////////
+          // (1) Compute the component of W that is perpendicular to N.
+          // (2) Scale that component vector by n1/n2.
+          // (3) Use that result to build a new outgoing unit length ray.
+          //
+          /////////////////////////////////////////////////////////////////////
  
 
-	  /////////////////////////////////////////////////////////////////////
-	  //
-	  // DO MIRROR REFLECTION:
+          /////////////////////////////////////////////////////////////////////
+          //
+          // DO MIRROR REFLECTION:
           //
           // Compute mirror ray direction by reflecting -W around N.
           // Loop through all spheres:
@@ -177,9 +162,26 @@
           //       shade other sphere to compute mirror color.
           // If mirror ray has hit any sphere:
           //    mix mirror color into color.
-	  //
-	  /////////////////////////////////////////////////////////////////////
+          //
+          /////////////////////////////////////////////////////////////////////
+          vec3 Vprime = S + N * 1.e-6;
+          vec3 Wprime = 2. * dot(-W, N) * N + W;
 
+          for (int j = 0 ; j < ns ; j++) {
+
+             // IF RAY HITS SPHERE
+
+             float tprime = raySphere(uSph[j], Vprime, Wprime);
+
+             if (tprime > 0. && tprime < tMin) {
+
+                // FIND SURFACE POINT AND NORMAL, THEN DO SHADING:
+
+                vec3 Sprime = Vprime + t * Wprime;
+                vec3 Nprime = normalize(Sprime - uSph[j].xyz);
+                color += shadeSphere(Sprime, Nprime, Wprime, uAmbient[j], uDiffuse[j], uSpecular[j]);
+              }
+          }
 
           tMin = t;
        }
@@ -266,6 +268,12 @@ function animate(gl) {
 
    setUniform('3fv', 'uLDir', [r3,r3,r3, -r3,-r3,-r3]);
    setUniform('3fv', 'uLCol', [1,1,1, .2,0,0]);
+
+   setUniform('4fv', 'uSph', [.5*Math.sin(time),0.,.5*Math.cos(time),.2, 0.,0.,0.,.2]);
+
+   setUniform('3fv', 'uAmbient', [.2,.1,.1, .1,.1,.2]);
+   setUniform('3fv', 'uDiffuse', [1.,.5,.5, .5,.5,1.]);
+   setUniform('4fv', 'uSpecular',[1.,1.,1.,10., 1.,1.,1.,20.]);
 }
 
 // START EVERYTHING.
