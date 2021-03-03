@@ -1,0 +1,215 @@
+<script src=lib1.js></script>
+
+<body bgcolor=black text=white link=white alink=white vlink=white>
+<center>
+<canvas id='canvas1' width=600 height=600></canvas>
+</center>
+</body>
+
+
+<!!-------- VERTEX SHADER: YOU PROBABLY DON'T WANT TO CHANGE THIS RIGHT NOW -------->
+
+<script id='my_vertex_shader' type='x-shader/x-vertex'>
+   attribute vec3 aPos;
+   varying   vec3 vPos;
+   void main() {
+      gl_Position = vec4(aPos, 1.);
+      vPos = aPos;
+   }
+</script>
+
+
+<!!-------- FRAGMENT SHADER: THIS IS WHERE YOU WILL DO YOUR WORK -------->
+
+<script id='my_fragment_shader' type='x-shader/x-fragment'>
+
+ uniform float uTime;   // TIME, IN SECONDS
+
+ varying vec3 vPos;     // -1 < vPos.x < +1
+                        // -1 < vPos.y < +1
+                        //      vPos.z == 0
+
+ float PI = 3.14159265359;
+
+ // YOU MUST DEFINE A main() FUNCTION.
+
+ // Implementation taken from https://stackoverflow.com/questions/2353211/hsl-to-rgb-color-conversion
+ float hue2rgb(vec3 pqh) {
+    float t = pqh.z;
+    if (t < 0.) t += 1.;
+    if (t > 1.) t -= 1.;
+    if (t < 1./6.) return pqh.x + (pqh.y - pqh.x) * 6. * t;
+    if (t < 1./2.) return pqh.y;
+    if (t < 2./3.) return pqh.x + (pqh.y - pqh.x) * (2./3. - t) * 6.;
+    return pqh.x;
+ }
+
+ void draw_flower(
+    vec2 origin,
+    float size,
+    float ang_speed_base,
+    float ang_speed_var,
+    float phase_0,
+    float phase_speed,
+    inout vec3 color
+ ) {
+    vec2 xy = (vec2(vPos.x, vPos.y) - origin) / size;
+
+    // Knobs 
+    float ang_speed = (ang_speed_base * PI + ang_speed_var * PI * cos(uTime)) / (2. * PI);
+    float phase = mod(phase_0 * uTime + phase_speed, 2. * PI);
+
+    mat2 R = mat2(vec2(cos(phase), sin(phase)), vec2(-sin(phase), cos(phase)));
+    vec2 xyrot = R * xy;
+
+    // Polar coordinates
+    float rrot = length(xyrot);
+    float thetarot = atan(xyrot.y, xyrot.x);
+    float theta = atan(xy.y, xy.x);
+
+    float epsilon = 0.01;
+
+    if (rrot < (cos(ang_speed * thetarot) + 1.)/2.) {
+      float h = cos(ang_speed * theta) / 2. + 1. + 0.5 * noise(vec3(xyrot.x, xyrot.y, phase));
+      float s = 1.0;
+      float l = 0.5;
+
+      float q = l < 0.5 ? l * (1. + s) : l + s - l * s;
+      float p = 2. * l - q;
+
+      float r = hue2rgb(vec3(p, q, h + 1./3.));
+      float g = hue2rgb(vec3(p, q, h));
+      float b = hue2rgb(vec3(p, q, h - 1./3.));
+      color += vec3(r, g, b);
+    }
+ }
+
+ void main() {
+
+ ////////////////////////////////////////////////
+ //
+ // HERE, FOR YOUR HOMEWORK, YOU CAN WRITE ANY
+ // CODE YOU LIKDEFINE A COLOR FOR THIS FRAGMENT.
+
+    // CREATE A WACKY BACKGROUND PATTERN.
+
+    vec3 color = vec3(0., 0., 0.);
+    vec3 v = vec3(-0.6412023693138236, -0.25452454916712575, 0.7400224271209517) * (1.0 + cos(uTime));
+    draw_flower(vec2(v) * noise(vPos), 3. * noise(vPos + v), 20., 5., -1., 0., color);
+    v = vec3(0.3839739489647256, 0.5586145531685509, -0.2387784627053804) * (1.0 + cos(uTime));
+    draw_flower(vec2(v) * noise(vPos), 3. * noise(vPos + v), 20., 5., 1., 0., color);
+    v = vec3(-0.7990847616578205, 0.5398308247001884, -0.28241362232925016) * (2.0 + cos(uTime));
+    draw_flower(vec2(v) * noise(vPos), 3. * noise(vPos + v), 20., 5., -1., 0., color);
+    v = vec3(-0.2956077593724633, 0.3658764757403974, -0.33779171258593643) * (2.0 + cos(uTime));
+    draw_flower(vec2(v) * noise(vPos), 3. * noise(vPos + v), 20., 5., 1., 0., color);
+    v = vec3(0.7222326861276935, 0.03667172342270897, -0.7963851001999269) * (5.0 + cos(uTime));
+    draw_flower(vec2(v) * noise(vPos), 3. * noise(vPos + v), 20., 5., -1., 0., color);
+    v = vec3(-0.1617597963013957, -0.6425572438673546, 0.6501618016812742) * (5.0 + cos(uTime));
+    draw_flower(vec2(v) * noise(vPos), 3. * noise(vPos + v), 20., 5., 1., 0., color);
+
+    gl_FragColor = vec4(sqrt(color), 1.0);
+ }
+</script>
+
+
+<!!-------- CREATE A PROPERLY DESCRIPTIVE TITLE BELOW -------->
+
+<script id='my_title' type='text/html'>
+DISCO Lights Program
+</script>
+
+
+<!!-------- HERE IS WHERE YOU CAN PROVIDE A LONGER TEXT DESCRIPTION -------->
+
+<script id='my_instructions' type='text/html'><font color=#b0b0b0>
+For this assignment I iteratively added more features to the shaders until it became
+a little too bonkers at which point I figured I should call it a day. I'll describe
+the designs I added over time below:
+<ol>
+  <li>
+    I created a flower petal by drawing a cosine function in polar coordinates.
+  </li>
+  <li>
+    Then, I colored the petals using an HSL wheel with hue corresponding to the polar
+    angle.
+  </li>
+  <li>
+    The scene looked too static, so I added some movement to the petals by changing the
+    number of petals over time as well as adding rotational movement to the petals.
+  </li>
+  <li>
+    I realized that if I reorganize the code a little bit, I can very easily scale up
+    the number of flowers I can render.
+  </li>
+  <li>
+    All that was left to do was to warp the screen-space (u,v) coordinates via the noise
+    function and add some translational movement to the flowers to get the result you
+    see here.
+  </li>
+</ol>
+
+Tinkering with various knobs was pretty fun. Admittedly the code is super hacky and
+some artifacts that I observed I can't really explain. Hopefully the above description
+will provide enough context to understand how the shader works as a whole.
+
+</script>
+
+
+<!!-------- YOU PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW FOR NOW -------->
+   
+<script>
+
+// CREATE THE HTML DOCUMENT
+
+let vs = my_vertex_shader.innerHTML,
+    fs = my_fragment_shader.innerHTML;
+    fs = fs.substring(1, fs.length);
+
+document.body.innerHTML = [''
+   ,'<center><font size=6 color=#b0b0b0>' + my_title.innerHTML + '</center>'
+   ,'<TABLE cellspacing=0 cellpadding=0><TR>'
+   ,'<td width=50></td><td><font color=red size=5><div id=errorMessage>&nbsp;</div></font></td>'
+   ,'</TR><TR>'
+   ,'<table cellspacing=10>'
+   ,'<tr>'
+   ,'<td valign=top><font size=2 color=red><div id=errorMarker>&nbsp;</div></font></td>'
+   ,'<td valign=top>'
+   ,'<textArea id=textArea spellcheck=false '
+   ,'style="font:16px courier;outline-width:0;border-style:none;resize:none;overflow:scroll;"'
+   ,'></textArea>'
+   ,'</td><td valign=top>' + document.body.innerHTML + '</td>'
+   ,'<td valign=top><font size=5>' + my_instructions.innerHTML + '</td>'
+   ,'</tr></table>'
+   ,'</TR></TABLE>'
+   ].join('');
+
+// SET UP THE EDITABLE TEXT AREA ON THE LEFT SIDE.
+
+let text = fs.split('\n'), cols = 0;
+for (let i = 0 ; i < text.length ; i++)
+   cols = Math.max(cols, text[i].length);
+
+textArea.rows = text.length;
+textArea.cols = cols;
+textArea.value = fs;
+textArea.style.backgroundColor = '#202020';
+textArea.style.color = 'white';
+
+// REPARSE THE SHADER PROGRAM AFTER EVERY KEYSTROKE.
+
+textArea.onkeyup = function() { canvas1.setShaders(vs, this.value); }
+
+// SET THE CURRENT TIME IN SECONDS BEFORE RENDERING EACH FRAME.
+
+let startTime = Date.now();
+
+function animate(gl) {
+   let time = (Date.now() - startTime) / 1000;
+   setUniform('1f', 'uTime', time);
+}
+
+// START EVERYTHING.
+
+gl_start(canvas1, vs, fs);
+</script>
+
