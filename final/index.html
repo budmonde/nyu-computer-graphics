@@ -1,0 +1,859 @@
+<script src=lib3.js></script>
+
+<body bgcolor=black text=white link=white alink=white vlink=white>
+<center>
+<canvas id='canvas1' width=600 height=600></canvas>
+</center>
+</body>
+
+
+<!!-------- VERTEX SHADER: YOU PROBABLY DON'T WANT TO CHANGE THIS RIGHT NOW -------->
+
+<script id='my_vertex_shader' type='x-shader/x-vertex'>
+   attribute vec3 aPos;
+   varying   vec3 vPos;
+   void main() {
+      gl_Position = vec4(aPos, 1.);
+      vPos = aPos;
+   }
+</script>
+
+
+<!!-------- FRAGMENT SHADER: THIS IS WHERE YOU WILL DO YOUR WORK -------->
+
+<script id='my_fragment_shader' type='x-shader/x-fragment'>
+
+ uniform float uTime;   // TIME, IN SECONDS
+
+ varying vec3 vPos;     // -1 < vPos.x < +1
+                        // -1 < vPos.y < +1
+                        //      vPos.z == 0
+
+ float fl = 3.0;
+
+ const int nl = 2;
+ uniform vec3 uLDir[nl];
+ uniform vec3 uLCol[nl];
+
+ const int ns = 2;
+ vec3 Ambient [ns];
+ vec3 Diffuse [ns];
+ vec4 Specular[ns];
+
+ vec4 Sph;
+ float CylR = 0.1;
+ float CylH = 0.5;
+ float DiscR = 0.1;
+ float DiscH = 0.25;
+
+ float rayDiscNear(vec3 V, vec3 W, inout vec3 N) {
+    if (abs(W.z) < 0.01) {
+      return -1.;
+    }
+    float t = (DiscH - V.z) / (W.z + 0.0001);
+    vec3 S = V + t * W;
+    if (S.x*S.x + S.y*S.y - DiscR * DiscR > 0.0001) {
+      return -1.;
+    }
+    N = -normalize(S - vec3(S.x, S.y, 0.));
+    return t;
+ }
+
+ float rayDiscFar(vec3 V, vec3 W, inout vec3 N) {
+    if (abs(W.z) < 0.01) {
+      return -1.;
+    }
+    float t = (-DiscH - V.z) / (W.z + 0.0001);
+    vec3 S = V + t * W;
+    if (S.x*S.x + S.y*S.y - DiscR * DiscR > 0.0001) {
+      return -1.;
+    }
+    N = normalize(S - vec3(S.x, S.y, 0.));
+    return t;
+ }
+
+ float rayOpenCylinder(vec3 V, vec3 W, inout vec3 N) {
+    float A = W.x*W.x + W.y*W.y;
+    float B = 2. * (dot(W.x, V.x) + dot(W.y, V.y));
+    float C = V.x*V.x + V.y*V.y - CylR*CylR;
+    float D = B*B - 4.*A*C;
+    float t;
+    if (D > 0.) {
+      float t = (-B - sqrt(D)) / (2. * A);
+      vec3 S = V + t * W;
+      if (abs(S.z) > CylH/2.) {
+        return -1.;
+      }
+      N = normalize(S - vec3(0., 0., S.z));
+      return t;
+    } else {
+      return -1.;
+    }
+ }
+
+ float rayOpenCylinderExit(vec3 V, vec3 W, inout vec3 N) {
+    float A = W.x*W.x + W.y*W.y;
+    float B = 2. * (dot(W.x, V.x) + dot(W.y, V.y));
+    float C = V.x*V.x + V.y*V.y - CylR*CylR;
+    float D = B*B - 4.*A*C;
+    if (D > 0.) {
+       float t = (-B + sqrt(D)) / (2. * A);
+       vec3 S = V + t * W;
+       if (abs(S.z) > CylH/2.) {
+         return -1.;
+       }
+       N = normalize(S - vec3(0., 0., S.z));
+       return t;
+    } else {
+       return -1.;
+    }
+ }
+
+ float rayCylinder(vec3 V, vec3 W, inout vec3 N) {
+    vec3 n[3];
+    float t[3];
+    t[0] = rayDiscNear(V, W, n[0]);
+    t[1] = rayDiscFar(V, W, n[1]);
+    t[2] = rayOpenCylinder(V, W, n[2]);
+    int best = -1;
+    float bestT = 100000.;
+    for (int i = 0; i < 3; ++i) {
+       if (t[i] < 0. || t[i] > bestT) {
+          continue;
+       } else {
+          best = i;
+          bestT = t[i];
+       }
+    }
+    if (best < 0) {
+       return -1.;
+    }
+    if (best == 0) {
+       N = n[0];
+       return t[0];
+    }
+    if (best == 1) {
+       N = n[1];
+       return t[1];
+    }
+    if (best == 2) {
+       N = n[2];
+       return t[2];
+    }
+    return -1.;
+ }
+
+ float rayCylinderExit(vec3 V, vec3 W, inout vec3 N) {
+    vec3 n[3];
+    float t[3];
+    t[0] = rayDiscNear(V, W, n[0]);
+    t[1] = rayDiscFar(V, W, n[1]);
+    t[2] = rayOpenCylinderExit(V, W, n[2]);
+    int best = -1;
+    float bestT = -100000.;
+    for (int i = 0; i < 3; ++i) {
+       if (t[i] < 0. || t[i] < bestT) {
+          continue;
+       } else {
+          best = i;
+          bestT = t[i];
+       }
+    }
+    if (best < 0) {
+       return -1.;
+    }
+    if (best == 0) {
+       N = n[0];
+       return t[0];
+    }
+    if (best == 1) {
+       N = n[1];
+       return t[1];
+    }
+    if (best == 2) {
+       N = n[2];
+       return t[2];
+    }
+    return -1.;
+ }
+
+ float raySphere(vec3 V, vec3 W, inout vec3 N) {
+    V -= Sph.xyz;
+    float B = dot(W, V);
+    float C = dot(V, V) - Sph.w * Sph.w;
+    float D = B*B - C;
+    if (D > 0.) {
+       float t = -B - sqrt(D);
+       vec3 S = V + t * W;
+       N = normalize(S - Sph.xyz);
+       return t;
+    }
+    else {
+       return -1.;
+    }
+ }
+
+ float raySphereExit(vec3 V, vec3 W, inout vec3 N) {
+    V -= Sph.xyz;
+    float B = dot(W, V);
+    float C = dot(V, V) - Sph.w * Sph.w;
+    float D = B*B - C;
+    if (D > 0.) {
+       float t = -B + sqrt(D);
+       vec3 S = V + t * W;
+       N = normalize(S - Sph.xyz);
+       return t;
+    }
+    else {
+       return -1.;
+    }
+ }
+
+ float rayCrossUnion(vec3 V, vec3 W, inout vec3 N) {
+    vec3 N1, N2;
+    float r1tmin = rayCylinder(V, W, N1);
+    mat3 M = mat3(
+       1., 0., 0.,
+       0., 0.,-1.,
+       0., 1., 0.
+    );
+    float r2tmin = rayCylinder(M*V, M*W, N2);
+    if (r1tmin < 0.) {
+       N = N2;
+       return r2tmin;
+    } else if (r2tmin < 0.) {
+       N = N1;
+       return r1tmin;
+    } else if (r1tmin < r2tmin) {
+       N = N1;
+       return r1tmin;
+    } else {
+       N = N2;
+       return r2tmin;
+    }
+ }
+
+ float rayCrossUnionExit(vec3 V, vec3 W, inout vec3 N) {
+    vec3 N1, N2;
+    float r1tmax = rayCylinderExit(V, W, N1);
+    mat3 M = mat3(
+       1., 0., 0.,
+       0., 0.,-1.,
+       0., 1., 0.
+    );
+    float r2tmax = rayCylinderExit(M*V, M*W, N2);
+    if (r1tmax < 0.) {
+       N = N2;
+       return r2tmax;
+    } else if (r2tmax < 0.) {
+       N = N1;
+       return r1tmax;
+    } else if (r1tmax > r2tmax) {
+       N = N1;
+       return r1tmax;
+    } else {
+       N = N2;
+       return r2tmax;
+    }
+ }
+
+ float rayAllUnion(vec3 V, vec3 W, inout vec3 N) {
+    vec3 N1, N2;
+    float r1tmin = rayCrossUnion(V, W, N1);
+    mat3 M = mat3(
+       0., 0.,-1.,
+       0., 1., 0.,
+       1., 0., 0.
+    );
+    float r2tmin = rayCylinder(M*V, M*W, N2);
+    if (r1tmin < 0.) {
+       N = N2;
+       return r2tmin;
+    } else if (r2tmin < 0.) {
+       N = N1;
+       return r1tmin;
+    } else if (r1tmin < r2tmin) {
+       N = N1;
+       return r1tmin;
+    } else {
+       N = N2;
+       return r2tmin;
+    }
+ }
+
+ float rayAllUnionExit(vec3 V, vec3 W, inout vec3 N) {
+    vec3 N1, N2;
+    float r1tmax = rayCrossUnionExit(V, W, N1);
+    mat3 M = mat3(
+       0.,-1., 0.,
+       1., 0., 0.,
+       0., 0., 1.
+    );
+    float r2tmax = rayCylinderExit(M*V, M*W, N2);
+    if (r1tmax < 0.) {
+       N = N2;
+       return r2tmax;
+    } else if (r2tmax < 0.) {
+       N = N1;
+       return r1tmax;
+    } else if (r1tmax > r2tmax) {
+       N = N1;
+       return r1tmax;
+    } else {
+       N = N2;
+       return r2tmax;
+    }
+ }
+ // float rayIntersection(vec4 Sph1, vec4 Sph2, vec3 V, vec3 W, inout vec3 N) {
+ //    float r1tmin = raySphere(Sph1, V, W);
+ //    float r2tmin = raySphere(Sph2, V, W);
+ //    if (r1tmin < 0. || r2tmin < 0.) {
+ //       return -1.;
+ //    } else if (r1tmin > r2tmin) {
+ //       vec3 S = V + r1tmin * W;
+ //       N = normalize(S - Sph1.xyz);
+ //       return r1tmin;
+ //    } else {
+ //       vec3 S = V + r2tmin * W;
+ //       N = normalize(S - Sph2.xyz);
+ //       return r2tmin;
+ //    }
+ // }
+
+ float raySphMinusCyl(vec3 V, vec3 W, inout vec3 N) {
+    vec3 N1, N2;
+    float r1tmin = raySphere(V, W, N1);
+    float r2tmin = rayCylinder(V, W, N2);
+    if (r1tmin < 0.) {
+       return r1tmin;
+    } else if (r2tmin < 0.) {
+       N = N1;
+       return r1tmin;
+    } else if (r1tmin < r2tmin) {
+       N = N1;
+       return r1tmin;
+    } else {
+       vec3 eN1, eN2;
+       float r1tmax = raySphereExit(V, W, eN1);
+       float r2tmax = rayCylinderExit(V, W, eN2);
+       if (r1tmax > r2tmax) {
+         if (r2tmax > r1tmin) {
+           N = -eN2;
+           return r2tmax;
+         } else {
+           N = N1;
+           return r1tmin;
+         }
+       } else {
+         return -1.;
+       }
+    }
+ }
+
+ float raySphMinusCylExit(vec3 V, vec3 W, inout vec3 N) {
+    vec3 N1, N2;
+    float r1tmax = raySphereExit(V, W, N1);
+    float r2tmax = rayCylinderExit(V, W, N2);
+    if (r1tmax < 0.) {
+       return r1tmax;
+    } else if (r2tmax < 0.) {
+       N = N1;
+       return r1tmax;
+    } else if (r1tmax > r2tmax) {
+       N = N1;
+       return r1tmax;
+    } else {
+       vec3 eN1, eN2;
+       float r1tmin = raySphere(V, W, eN1);
+       float r2tmin = rayCylinder(V, W, eN2);
+       if (r1tmin < r2tmin) {
+         if (r2tmax > r1tmin) {
+           N = -eN2;
+           return r2tmin;
+         } else {
+           N = N1;
+           return r1tmax;
+         }
+       } else {
+         return -1.;
+       }
+    }
+ }
+
+ float raySphMinusCross(vec3 V, vec3 W, inout vec3 N) {
+    vec3 N1, N2;
+    float r1tmin = raySphMinusCyl(V, W, N1);
+    mat3 M = mat3(
+       1., 0., 0.,
+       0., 0.,-1.,
+       0., 1., 0.
+    );
+    float r2tmin = rayCylinder(M*V, M*W, N2);
+    if (r1tmin < 0.) {
+       return r1tmin;
+    } else if (r2tmin < 0.) {
+       N = N1;
+       return r1tmin;
+    } else if (r1tmin < r2tmin) {
+       N = N1;
+       return r1tmin;
+    } else {
+       vec3 eN1, eN2;
+       float r1tmax = raySphMinusCylExit(V, W, eN1);
+       float r2tmax = rayCylinderExit(M*V, M*W, eN2);
+       if (r1tmax > r2tmax) {
+         if (r2tmax > r1tmin) {
+           N = -eN2;
+           return r2tmax;
+         } else {
+           N = N1;
+           return r1tmin;
+         }
+       } else {
+         return -1.;
+       }
+    }
+ }
+
+ float raySphMinusCrossExit(vec3 V, vec3 W, inout vec3 N) {
+    vec3 N1, N2;
+    mat3 M = mat3(
+       1., 0., 0.,
+       0., 0.,-1.,
+       0., 1., 0.
+    );
+    float r1tmax = raySphMinusCylExit(V, W, N1);
+    float r2tmax = rayCylinderExit(M*V, M*W, N2);
+    if (r1tmax < 0.) {
+       return r1tmax;
+    } else if (r2tmax < 0.) {
+       N = N1;
+       return r1tmax;
+    } else if (r1tmax > r2tmax) {
+       N = N1;
+       return r1tmax;
+    } else {
+       vec3 eN1, eN2;
+       float r1tmin = raySphMinusCyl(V, W, eN1);
+       float r2tmin = rayCylinder(M*V, M*W, eN2);
+       if (r1tmin < r2tmin) {
+         if (r2tmax > r1tmin) {
+           N = -eN2;
+           return r2tmin;
+         } else {
+           N = N1;
+           return r1tmax;
+         }
+       } else {
+         return -1.;
+       }
+    }
+ }
+
+ float raySphMinusAll(vec3 V, vec3 W, inout vec3 N) {
+    vec3 N1, N2;
+    float r1tmin = raySphMinusCross(V, W, N1);
+    mat3 M = mat3(
+       0., 0., 1.,
+       0., 1., 0.,
+      -1., 0., 0.
+    );
+    float r2tmin = rayCylinder(M*V, M*W, N2);
+    if (r1tmin < 0.) {
+       return r1tmin;
+    } else if (r2tmin < 0.) {
+       N = N1;
+       return r1tmin;
+    } else if (r1tmin < r2tmin) {
+       N = N1;
+       return r1tmin;
+    } else {
+       vec3 eN1, eN2;
+       float r1tmax = raySphMinusCrossExit(V, W, eN1);
+       float r2tmax = rayCylinderExit(M*V, M*W, eN2);
+       if (r1tmax > r2tmax) {
+         if (r2tmax > r1tmin) {
+           N = -eN2;
+           return r2tmax;
+         } else {
+           N = N1;
+           return r1tmin;
+         }
+       } else {
+         return -1.;
+       }
+    }
+ }
+
+ float raySphMinusAllExit(vec3 V, vec3 W, inout vec3 N) {
+    vec3 N1, N2;
+    mat3 M = mat3(
+       0., 0., 1.,
+       0., 1., 0.,
+      -1., 0., 0.
+    );
+    float r1tmax = raySphMinusCrossExit(V, W, N1);
+    float r2tmax = rayCylinderExit(M*V, M*W, N2);
+    if (r1tmax < 0.) {
+       return r1tmax;
+    } else if (r2tmax < 0.) {
+       N = N1;
+       return r1tmax;
+    } else if (r1tmax > r2tmax) {
+       N = N1;
+       return r1tmax;
+    } else {
+       vec3 eN1, eN2;
+       float r1tmin = raySphMinusCross(V, W, eN1);
+       float r2tmin = rayCylinder(M*V, M*W, eN2);
+       if (r1tmin < r2tmin) {
+         if (r2tmax > r1tmin) {
+           N = -eN2;
+           return r2tmin;
+         } else {
+           N = N1;
+           return r1tmax;
+         }
+       } else {
+         return -1.;
+       }
+    }
+ }
+
+ // I VARY THE SKY COLOR DEPENDING ON Y. FEEL FREE TO MAKE A DIFFERENT SKY PATTERN:
+
+ vec3 skyColor(float y) {
+    return mix(vec3(.1,.05,.07), vec3(.2,.3,.7), .5+.5*y);
+ }
+
+ // YOU MUST DEFINE A main() FUNCTION:
+
+ void main() {
+
+ ////////////////////////////////////////////////
+ //
+ // HERE, FOR YOUR HOMEWORK, YOU CAN WRITE ANY
+ // CODE YOU LIKDEFINE A COLOR FOR THIS FRAGMENT.
+
+    // POSITIONS AND RADII OF SPHERES:
+
+    Sph = vec4(0.,0.,0., 0.2);
+
+    // SURFACE REFLECTANCE PROPERTIES: 
+
+    Ambient [0] = vec3(.2,.1,.1);      // r,g,b
+    Diffuse [0] = vec3(1.,.5,.5);      // r,g,b
+    Specular[0] = vec4(1.,1.,1., 10.); // r,g,b,power
+
+    Ambient [1] = vec3(.1,.1,.2);      // r,g,b
+    Diffuse [1] = vec3(.5,.5,1.);      // r,g,b
+    Specular[1] = vec4(1.,1.,1., 20.); // r,g,b,power
+
+    // INITIALIZE TO A BACKGROUND COLOR:
+
+    vec3 color = skyColor(vPos.y);
+
+    /////////////// Draw cylinder
+    {
+      float x = vPos.x+0.5;
+      float y = vPos.y-0.7;
+
+      mat3 M = mat3(
+        1.,         0.,         0.,
+        0., cos(uTime),-sin(uTime),
+        0., sin(uTime), cos(uTime)
+      );
+      M = M * mat3(
+        cos(uTime), 0.,-sin(uTime),
+                0., 1.,         0.,
+        sin(uTime), 0., cos(uTime)
+      );
+
+      vec3 V = M * vec3(0.,0.,fl);
+      vec3 W = M * normalize(vec3(x, y, -fl));
+
+      // RAY TRACE TO ALL OBJECTS IN THE SCENE:
+
+      float tMin = 10000.0;
+      vec3 N;
+
+      float t = rayCylinder(V, W, N);
+
+      if (t > 0. && t < tMin) {
+
+         vec3 S = V + t * W;
+         color = Ambient[0];
+         for (int j = 0 ; j < nl ; j++) {
+            float t = -1.;
+            vec3 n;
+            t = max(t, rayCylinder(S, uLDir[j], n));
+            if (t < 0.) {
+               vec3 R = 2. * dot(uLDir[j], N) * N - uLDir[j];
+               color += Diffuse[0] * max(0.,dot(N,uLDir[j])) * uLCol[j];
+               color += Specular[0].rgb * pow(max(0.,dot(R,-W)),Specular[0].a) * uLCol[j];
+            }
+         }
+
+         tMin = t;
+      }
+    }
+    /////////////// End Draw cylinder
+    /////////////// Draw pipes
+    {
+      float x = vPos.x+0.5;
+      float y = vPos.y-0.0;
+
+      mat3 M = mat3(
+        1.,         0.,         0.,
+        0., cos(uTime),-sin(uTime),
+        0., sin(uTime), cos(uTime)
+      );
+      M = M * mat3(
+        cos(uTime), 0.,-sin(uTime),
+                0., 1.,         0.,
+        sin(uTime), 0., cos(uTime)
+      );
+
+      vec3 V = M * vec3(0.,0.,fl);
+      vec3 W = M * normalize(vec3(x, y, -fl));
+
+      // RAY TRACE TO ALL OBJECTS IN THE SCENE:
+
+      float tMin = 10000.0;
+      vec3 N;
+
+      float t = rayAllUnion(V, W, N);
+
+      if (t > 0. && t < tMin) {
+
+         vec3 S = V + t * W;
+         color = Ambient[0];
+         for (int j = 0 ; j < nl ; j++) {
+            float t = -1.;
+            vec3 n;
+            t = max(t, rayAllUnion(S, uLDir[j], n));
+            if (t < 0.) {
+               vec3 R = 2. * dot(uLDir[j], N) * N - uLDir[j];
+               color += Diffuse[0] * max(0.,dot(N,uLDir[j])) * uLCol[j];
+               color += Specular[0].rgb * pow(max(0.,dot(R,-W)),Specular[0].a) * uLCol[j];
+            }
+         }
+
+         tMin = t;
+      }
+    }
+    /////////////// End Draw pipes
+    /////////////// Draw sphere
+    {
+      float x = vPos.x-0.5;
+      float y = vPos.y-0.35;
+
+      mat3 M = mat3(
+        1.,         0.,         0.,
+        0., cos(uTime),-sin(uTime),
+        0., sin(uTime), cos(uTime)
+      );
+      M = M * mat3(
+        cos(uTime), 0.,-sin(uTime),
+                0., 1.,         0.,
+        sin(uTime), 0., cos(uTime)
+      );
+
+      vec3 V = M * vec3(0.,0.,fl);
+      vec3 W = M * normalize(vec3(x, y, -fl));
+
+      // RAY TRACE TO ALL OBJECTS IN THE SCENE:
+
+      float tMin = 10000.0;
+      vec3 N;
+
+      float t = raySphere(V, W, N);
+
+      if (t > 0. && t < tMin) {
+
+         vec3 S = V + t * W;
+         color = Ambient[0];
+         for (int j = 0 ; j < nl ; j++) {
+            float t = -1.;
+            vec3 n;
+            t = max(t, raySphere(S, uLDir[j], n));
+            if (t < 0.) {
+               vec3 R = 2. * dot(uLDir[j], N) * N - uLDir[j];
+               color += Diffuse[0] * max(0.,dot(N,uLDir[j])) * uLCol[j];
+               color += Specular[0].rgb * pow(max(0.,dot(R,-W)),Specular[0].a) * uLCol[j];
+            }
+         }
+
+         tMin = t;
+      }
+    }
+    /////////////// End Draw sphere
+    /////////////// Draw Final
+    {
+      float x = vPos.x;
+      float y = vPos.y+0.5;
+
+      mat3 M = mat3(
+        1.,         0.,         0.,
+        0., cos(uTime),-sin(uTime),
+        0., sin(uTime), cos(uTime)
+      );
+      M = M * mat3(
+        cos(uTime), 0.,-sin(uTime),
+                0., 1.,         0.,
+        sin(uTime), 0., cos(uTime)
+      );
+
+      vec3 V = M * vec3(0.,0.,fl);
+      vec3 W = M * normalize(vec3(x, y, -fl));
+
+      // RAY TRACE TO ALL OBJECTS IN THE SCENE:
+
+      float tMin = 10000.0;
+      vec3 N;
+
+      float t = raySphMinusAll(V, W, N);
+
+      if (t > 0. && t < tMin) {
+
+         vec3 S = V + t * W;
+         color = Ambient[0];
+         for (int j = 0 ; j < nl ; j++) {
+            float t = -1.;
+            vec3 n;
+            t = max(t, raySphMinusAll(S, uLDir[j], n));
+            if (t < 0.) {
+               vec3 R = 2. * dot(uLDir[j], N) * N - uLDir[j];
+               color += Diffuse[0] * max(0.,dot(N,uLDir[j])) * uLCol[j];
+               color += Specular[0].rgb * pow(max(0.,dot(R,-W)),Specular[0].a) * uLCol[j];
+            }
+         }
+
+         tMin = t;
+      }
+    }
+    /////////////// End Draw Final
+
+    gl_FragColor = vec4(sqrt(color), 1.0);
+ }
+</script>
+
+
+<!!-------- CREATE A PROPERLY DESCRIPTIVE TITLE BELOW -------->
+
+<script id='my_title' type='text/html'>
+Basic Constructive Solid Geometry (CSG) by Monde Duinkharjav (bd2111)
+</script>
+
+
+<!!-------- HERE IS WHERE YOU CAN PROVIDE A LONGER TEXT DESCRIPTION -------->
+
+<script id='my_instructions' type='text/html'><font color=#b0b0b0>
+<h3>Motivation</h3>
+Constructive Solid Geometry (CSG) is a very intuitive extension of the shape primitives
+we covered in class. In previous projects where I've worked on ray tracers and
+rasterizers, CSG was mentioned in passing but never a topic that was received much
+attention. Seeing an
+<a href="https://www.pbr-book.org/3ed-2018/Shapes/Exercises">exercise</a> in the textbook
+"Physically Based Rendering: From Theory To Implementation" by Pharr et al., I decided to
+attempt to put this demo together for the final project.<br/>
+
+<h3>What is CSG?</h3>
+CSG describes an approach to creating complex surface geometries using boolean operations
+on simple primitive shapes that are easy to define (such as spheres, cubes and
+cylinders). This method is very popular for modeling manufacturable parts due to its
+intuitiveness. Additionally, the process of making CSG shapes roughly mimicks how their
+physical counterparts are manufactured.
+
+<h3>Contribution</h3>
+For the final project, I implemented basic CSG operations of Union, Intersection and
+Difference. For the sake of a cohesive demo, I also added some other shape primitives
+such as a cylinder and disc. Specifically:
+<br/>
+1. We implement a Cylinder object primitive.<br/>
+2. We take the union of three cylinders (each perpendicular to each other).<br/>
+3. We subtract the union of cylinders from a sphere.<br/>
+
+<h3>Limitations and Further Work</h3>
+Implementing ray tracing logic in GLSL limits the extent of complexity of the program.
+I should consider moving this logic to a higher level programming environment and only
+using GLSL for the final tesselation and rasterization steps. CSG makes interactive mesh
+editting very intuitive. We could potentially extend this work to use the interactive
+UX elements we've build in the second half of the course to create an interactive CSG
+modeling tool.
+<br/><br/><br/>
+
+P.S. For folks interested in more advanced topics on rendering, I highly recommend you
+check out <a href="https://www.pbr-book.org/">this book</a> (which is where I found the
+exercise that suggested the idea of CSG)! It's arguably one of the most
+useful reference books I've used not just for computer graphics, but for good software
+practices in general. The book not only explains rendering concepts, but also good
+organization of rendering software.<br/>
+</script>
+
+
+<!!-------- YOU PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW FOR NOW -------->
+   
+<script>
+
+// CREATE THE HTML DOCUMENT:
+
+let vs = my_vertex_shader.innerHTML,
+    fs = my_fragment_shader.innerHTML;
+    fs = fs.substring(1, fs.length);
+
+document.body.innerHTML = [''
+   ,'<center><font size=6 color=#b0b0b0>' + my_title.innerHTML + '</center>'
+   ,'<TABLE cellspacing=0 cellpadding=0><TR>'
+   ,'<td width=50></td><td><font color=red size=5><div id=errorMessage>&nbsp;</div></font></td>'
+   ,'</TR><TR>'
+   ,'<table cellspacing=10>'
+   ,'<tr>'
+   ,'<td valign=top><font size=2 color=red><div id=errorMarker>&nbsp;</div></font></td>'
+   ,'<td valign=top>'
+   ,'<textArea id=textArea spellcheck=false '
+   ,'style="font:16px courier;outline-width:0;border-style:none;resize:none;overflow:scroll;"'
+   ,'></textArea>'
+   ,'</td><td valign=top>' + document.body.innerHTML + '</td>'
+   ,'<td valign=top><font size=5>' + my_instructions.innerHTML + '</td>'
+   ,'</tr></table>'
+   ,'</TR></TABLE>'
+   ].join('');
+
+// SET UP THE EDITABLE TEXT AREA ON THE LEFT SIDE:
+
+let text = fs.split('\n'), cols = 0;
+for (let i = 0 ; i < text.length ; i++)
+   cols = Math.max(cols, text[i].length);
+
+textArea.rows = text.length;
+textArea.cols = cols;
+textArea.value = fs;
+textArea.style.backgroundColor = '#202020';
+textArea.style.color = 'white';
+
+// REPARSE THE SHADER PROGRAM AFTER EVERY KEYSTROKE:
+
+textArea.onkeyup = function() { canvas1.setShaders(vs, this.value); }
+
+// SET THE CURRENT TIME IN SECONDS BEFORE RENDERING EACH FRAME:
+
+let startTime = Date.now();
+
+let r3 = Math.sqrt(1/3);
+
+function animate(gl) {
+   let time = (Date.now() - startTime) / 1000;
+   setUniform('1f', 'uTime', time);
+
+   // SET DIRECTIONS AND COLORS OF THE LIGHT SOURCES:
+
+   setUniform('3fv', 'uLDir', [r3,r3,r3, -r3,-r3,-r3]);
+   setUniform('3fv', 'uLCol', [1,1,1, .2,0,0]);
+}
+
+// START EVERYTHING.
+
+gl_start(canvas1, vs, fs);
+</script>
+
